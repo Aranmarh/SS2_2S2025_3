@@ -173,6 +173,8 @@ FROM ML.TRAINING_INFO(MODEL `ss2-equipo-03.fase2_dataset.fase2_tipped_logistic`)
 
 #### Información de entrenamiento (ML.TRAINING_INFO)
 
+![Resultados del Modelo A](./resource/info_entrenamiento_modeloA.png)
+
 | Iteración | Loss (entrenamiento) | Eval Loss (validación) | Learning Rate | Duración (ms) |
 |-----------|------------------------|-------------------------|----------------|----------------|
 | 0         | 0.68973295211468577    | 0.68954894966778635     | 0.2            | 5631           |
@@ -318,6 +320,9 @@ FROM ML.TRAINING_INFO(MODEL `ss2-equipo-03.fase2_dataset.fase2_tipped_btree`);
 
 #### Información de entrenamiento (ML.TRAINING_INFO)
 
+
+![info entrenamiento modelo B](./resource/info_entrenamiento_modeloB.png)
+
 Durante el entrenamiento del modelo Boosted Tree se realizaron **30 iteraciones**.  
 BigQuery ML registró, en cada una, el valor del error (*loss*), el error de validación (*eval_loss*), el tiempo de ejecución y la tasa de aprendizaje.
 
@@ -443,3 +448,113 @@ Este gráfico muestra cómo varían la **precisión** y el **recall** del modelo
  
 - Por estas razones, este modelo se selecciona como el **modelo final** para generar predicciones y construir el dashboard de resultados (Fase 2).
 ---
+
+### 6  Evaluación de modelos
+
+Para medir el desempeño real de los modelos entrenados, se evaluaron utilizando el conjunto de prueba (v_features_test), es decir, datos nunca vistos durante el entrenamiento. Esto permite validar su capacidad de generalización y evitar overfitting.
+
+Se ejecutaron las funciones de ML.EVALUATE de BigQuery ML para ambos modelos:
+
+ Modelo A – Regresión Logística
+
+ Modelo B – Boosted Tree Classifier
+
+Cada evaluación genera métricas clave como:
+accuracy, precision, recall, f1-score, log_loss y AUC-ROC.
+
+####  Métrica principal seleccionada: **ROC AUC (Area Under the ROC Curve)**
+
+Se eligió **ROC AUC** como métrica principal de evaluación porque:
+
+- Es adecuada para **problemas de clasificación binaria**, como predecir si habrá propina (`tipped = 1` o `0`).
+- No depende de un umbral específico (como la accuracy o precision), sino que evalúa el rendimiento del modelo en todos los posibles umbrales.
+- Mide la capacidad del modelo para **distinguir correctamente entre clases**, es decir, qué tan bien separa viajes con propina de los que no la tienen.
+- Es especialmente útil cuando las clases pueden estar **desbalanceadas**, algo que ocurre comúnmente en propinas (más viajes sin propina que con propina).
+
+ Comparación de modelos usando la métrica principal
+
+ 
+![Comparaciones en metricas del del Modelo A y B](./resource/comparacion.png)
+
+| Modelo     | ROC AUC | Accuracy | Precision | Recall | F1-score | Log Loss |
+|------------|---------|----------|-----------|--------|----------|----------|
+| **Boosted Tree** | **0.9944** | 0.9776 | 0.9867 | 0.9844 | 0.9855 | 0.0998 |
+| Regresión Logística | 0.5999 | 0.6770 | 0.8060 | 0.7666 | 0.7858 | 0.6802 |
+
+ El modelo **Boosted Tree Classifier** alcanza un **ROC AUC ≈ 0.994**, muy cercano al valor perfecto (1.0).  
+ El modelo **Regresión Logística** obtiene solo **ROC AUC ≈ 0.59**, apenas mejor que un modelo aleatorio.
+
+#### Interpretabilidad vs Rendimiento
+
+| Aspecto | Regresión Logística | Boosted Tree |
+|---------|----------------------|--------------|
+| Interpretabilidad | Alta (coeficientes fáciles de entender) | Menor (modelo tipo "caja negra") |
+| Capacidad de aprender patrones complejos | Baja | **Alta** |
+| Métricas de rendimiento | Moderadas | **Excelentes** |
+ 
+ Se selecciona **Boosted Tree Classifier** como modelo final debido a su superior desempeño en la métrica principal (**ROC AUC = 0.994**), así como en accuracy, precision, recall y F1-score. Aunque la regresión logística ofrece mayor interpretabilidad, no logra capturar patrones complejos del dataset. El modelo Boosted Tree representa el mejor equilibrio entre rendimiento y aplicabilidad, y será utilizado para la generación de predicciones y visualización en el dashboard.
+
+ ### 7  Generación de predicciones con el modelo final (Boosted Tree)
+
+Una vez seleccionado el modelo con mejor rendimiento, se generaron predicciones sobre el conjunto de prueba (`v_features_test`) utilizando `ML.PREDICT`.  
+El resultado se almacenó en una tabla para su análisis y uso posterior en el dashboard.
+
+```sql
+CREATE OR REPLACE TABLE `ss2-equipo-03.fase2_dataset.pred_tipped_btree_test` AS
+SELECT
+  p.predicted_tipped AS tipped_pred,            -- Clase predicha (0/1)
+  p.predicted_tipped_probs[OFFSET(1)] AS p_yes, -- Probabilidad de tipped=1
+  f.pickup_datetime,
+  f.pickup_loc,
+  f.dropoff_loc, 
+  f.hour_of_day, 
+  f.dow, 
+  f.month,
+  f.trip_distance, 
+  f.total_amount, 
+  f.fare_amount, 
+  f.passenger_count,
+  f.tipped AS tipped_real
+FROM ML.PREDICT(
+  MODEL `ss2-equipo-03.fase2_dataset.fase2_tipped_btree`,
+  (
+    SELECT
+      tipped,
+      hour_of_day, dow, month,
+      trip_distance, total_amount, fare_amount, passenger_count,
+      pickup_loc, dropoff_loc
+    FROM `ss2-equipo-03.fase2_dataset.v_features_test`
+  )
+) AS p
+JOIN `ss2-equipo-03.fase2_dataset.v_features_test` AS f
+USING (
+  tipped, hour_of_day, dow, month,
+  trip_distance, total_amount, fare_amount, passenger_count,
+  pickup_loc, dropoff_loc
+);
+```
+
+
+#### tabla de predicciones 
+
+![predicciones](./resource/Predicciones.png)
+
+
+#### Curvas y cortes de decisión
+
+
+El umbral (threshold) es el valor que utiliza el modelo para transformar la probabilidad predicha en una decisión final. Si la probabilidad calculada por el modelo es mayor o igual al umbral, se clasifica en la clase positiva (por ejemplo, que sí habrá propina); si es menor, se clasifica como negativa.
+
+Este valor es importante porque permite ajustar el comportamiento del modelo según lo que se desee priorizar: mayor precisión o mayor capacidad para detectar casos positivos.
+
+![Umbral](./resource/umbral.png)
+
+#### Propuesta de ajuste del umbral (≠ 0.5)
+
+En lugar de utilizar siempre el umbral estándar de 0.5, se puede modificar para mejorar el desempeño del modelo según el objetivo del negocio:
+
+Si se desea identificar la mayor cantidad posible de casos positivos, se puede utilizar un umbral más bajo, lo que aumenta la sensibilidad o recall.
+
+Si se desea reducir al mínimo los errores cuando el modelo clasifica como positivo, se puede utilizar un umbral más alto, lo que aumenta la precisión.
+
+La elección del umbral, por lo tanto, debe estar alineada con la estrategia del negocio y qué es más importante: detectar más casos o equivocarse menos.

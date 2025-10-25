@@ -1,5 +1,9 @@
 # SS2_2S2025_Grupo 3 – Proyecto Fase 2 – Modelado Predictivo con BigQuery ML
 ## Jose Ignacio Martinez Hernandez 201408507
+ 
+ ## Dashboard
+
+[haz click](https://lookerstudio.google.com/reporting/45e37cb8-f191-407c-a0fd-6ce649a46a03)
 
 
 ### 1.1 Crear dataset de trabajo 
@@ -549,6 +553,8 @@ Este valor es importante porque permite ajustar el comportamiento del modelo seg
 
 ![Umbral](./resource/umbral.png)
 
+![Umbral](./resource/curva.png)
+
 #### Propuesta de ajuste del umbral (≠ 0.5)
 
 En lugar de utilizar siempre el umbral estándar de 0.5, se puede modificar para mejorar el desempeño del modelo según el objetivo del negocio:
@@ -558,3 +564,4 @@ Si se desea identificar la mayor cantidad posible de casos positivos, se puede u
 Si se desea reducir al mínimo los errores cuando el modelo clasifica como positivo, se puede utilizar un umbral más alto, lo que aumenta la precisión.
 
 La elección del umbral, por lo tanto, debe estar alineada con la estrategia del negocio y qué es más importante: detectar más casos o equivocarse menos.
+
